@@ -59,7 +59,7 @@ class AudioRecorder {
   }
 
   Future<void> _getAvgLatency() async {
-    int tests         = 5;
+    int tests         = 10;
     int totalLatency  = 0;
 
     for (int i = 0; i < tests; i++) {

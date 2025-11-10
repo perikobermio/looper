@@ -4,6 +4,7 @@ import 'package:flutter_sound/flutter_sound.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:async';
 import 'audio_recorder.dart';
+import 'player_tile.dart';
 
 void main() => runApp(const MyApp());
 
@@ -31,6 +32,7 @@ class _HomePageState extends State<HomePage> {
 
   bool _isRecording = false;
   int _channel      = 1;
+  bool _allPlaying  = false;
 
   List<FileSystemEntity> _loops = [];
   late Directory loopsDir;
@@ -65,6 +67,15 @@ class _HomePageState extends State<HomePage> {
     setState(() => _isRecording = true);
   }
 
+  void _togglePlayAll() {
+    setState(() => _allPlaying = !_allPlaying);
+    if (_allPlaying) {
+      // reproducir todos
+    } else {
+      // detener todos
+    }
+  }
+
   @override
   void dispose() {
     recorder.destroy();
@@ -82,19 +93,28 @@ class _HomePageState extends State<HomePage> {
         children: [
           Padding(
             padding: const EdgeInsets.all(8.0),
-            child: DropdownButton<int>(
-              value: _channel,
-              items: List.generate(
-                4,
-                (index) => DropdownMenuItem(
-                  value: index + 1,
-                  child: Text('Canal ${index + 1}'),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                DropdownButton<int>(
+                  value: _channel,
+                  items: List.generate(
+                    4,
+                    (index) => DropdownMenuItem(
+                      value: index + 1,
+                      child: Text('Canal ${index + 1}'),
+                    ),
+                  ),
+                  onChanged: (value) {
+                    setState(() => _channel = value!);
+                  },
                 ),
-              ),
-              onChanged: (value) {
-                setState(() => _channel = value!);
-                debugPrint('Canal seleccionado: $_channel');
-              },
+                ElevatedButton.icon(
+                  onPressed: _togglePlayAll,
+                  icon: Icon(_allPlaying ? Icons.stop : Icons.play_arrow),
+                  label: const Text(''),
+                ),
+              ],
             ),
           ),
           Expanded(
@@ -102,7 +122,7 @@ class _HomePageState extends State<HomePage> {
               itemCount: _loops.length,
               itemBuilder: (context, index) {
                 final file = _loops[index];
-                return LoopPlayerTile(filePath: file.path);
+                return LoopPlayerTile(filePath: file.path, onDelete: _loadLoops);
               },
             ),
           ),
@@ -118,68 +138,3 @@ class _HomePageState extends State<HomePage> {
     );
   }
 }
-
-class LoopPlayerTile extends StatefulWidget {
-  final String filePath;
-  const LoopPlayerTile({super.key, required this.filePath});
-
-  @override
-  State<LoopPlayerTile> createState() => _LoopPlayerTileState();
-}
-
-class _LoopPlayerTileState extends State<LoopPlayerTile> {
-  final FlutterSoundPlayer _player = FlutterSoundPlayer();
-  bool _isPlaying = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _player.openPlayer();
-  }
-
-  @override
-  void dispose() {
-    _player.closePlayer();
-    super.dispose();
-  }
-
-  Future<void> _togglePlay() async {
-    if (_isPlaying) {
-      await _player.stopPlayer();
-      setState(() => _isPlaying = false);
-    } else {
-      await _startLoop();
-      setState(() => _isPlaying = true);
-    }
-  }
-
-  Future<void> _startLoop() async {
-    await _player.startPlayer(
-      fromURI: widget.filePath,
-      codec: Codec.aacADTS,
-      whenFinished: () async {
-        if (_isPlaying) {
-          // Reinicia inmediatamente al terminar
-          await _player.startPlayer(
-            fromURI: widget.filePath,
-            codec: Codec.aacADTS,
-            whenFinished: _startLoop,
-          );
-        }
-      },
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final fileName = widget.filePath.split('/').last;
-    return ListTile(
-      title: Text(fileName),
-      trailing: IconButton(
-        icon: Icon(_isPlaying ? Icons.stop : Icons.play_arrow),
-        onPressed: _togglePlay,
-      ),
-    );
-  }
-}
-
