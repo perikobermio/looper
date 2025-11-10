@@ -8,28 +8,25 @@ import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
 
 class AudioRecorder {
   final FlutterSoundRecorder        _recorder   = FlutterSoundRecorder();
-  final StreamController<Uint8List> _controller = StreamController<Uint8List>();
+  final StreamController<Uint8List> _controller = StreamController<Uint8List>.broadcast();
   final List<int>                   _pcmBuffer  = [];
-  int                               _recStart   = 0;             
+  int                               _avgLatency = 0;             
 
   Future<void> init() async {
-    bool firstBufferReceived = false;
-    _controller.stream.listen((buffer) {
-      if (firstBufferReceived == false) {
-        firstBufferReceived = true;
-        final now = DateTime.now().millisecondsSinceEpoch;
-        debugPrint('REAL LATENCY: ${now - _recStart}ms');
-      }
-      _pcmBuffer.addAll(buffer);
-    });
-
     await Permission.microphone.request();
     await Permission.storage.request();
     await _recorder.openRecorder();
+
+    await _getAvgLatency();
+
+    debugPrint("AVERAGE LATENCY: $_avgLatency");
+
+    _controller.stream.listen((buffer) {
+      _pcmBuffer.addAll(buffer);
+    });
   }
 
   Future<void> rec() async {
-    _recStart = DateTime.now().millisecondsSinceEpoch;
     await _recorder.startRecorder(
       toStream: _controller.sink,
       codec: Codec.pcm16,
@@ -42,7 +39,14 @@ class AudioRecorder {
 
   Future<void> save(String path) async {
     await _recorder.stopRecorder();
-    final pcm = Uint8List.fromList(_pcmBuffer);
+    Uint8List pcm = Uint8List.fromList(_pcmBuffer);
+
+    int bytesPerMs = (48000 * 2);
+    int cutBytes = _avgLatency * bytesPerMs;
+    if (pcm.length > cutBytes * 2) {
+      pcm = pcm.sublist(cutBytes, pcm.length - cutBytes);
+    }
+
     final wav = _addWavHeader(pcm, 1, 48000, 16);
     await File("$path.wav").writeAsBytes(wav);
     await FFmpegKit.execute('-y -i "$path.wav" -c:a aac "$path.aac"');
@@ -52,6 +56,42 @@ class AudioRecorder {
 
   Future<void> destroy() async {
     _recorder.closeRecorder();
+  }
+
+  Future<void> _getAvgLatency() async {
+    int tests         = 5;
+    int totalLatency  = 0;
+
+    for (int i = 0; i < tests; i++) {
+      bool firstBuffer = false;
+      int start = 0;
+      late StreamSubscription sub;
+
+      sub = _controller.stream.listen((buffer) {
+        if (!firstBuffer) {
+          firstBuffer = true;
+          final now = DateTime.now().millisecondsSinceEpoch;
+          totalLatency += (now - start);
+        }
+      });
+
+      start = DateTime.now().millisecondsSinceEpoch;
+      await _recorder.startRecorder(
+        toStream: _controller.sink,
+        codec: Codec.pcm16,
+        numChannels: 1,
+        sampleRate: 48000,
+        bufferSize: 64,
+        audioSource: AudioSource.microphone,
+      );
+
+      await Future.delayed(const Duration(milliseconds: 300));
+      await _recorder.stopRecorder();
+      await sub.cancel();
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+
+    _avgLatency = (totalLatency / tests).round();
   }
 
   Uint8List _addWavHeader(Uint8List pcm, int channels, int sampleRate, int bitsPerSample) {

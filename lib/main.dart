@@ -148,13 +148,26 @@ class _LoopPlayerTileState extends State<LoopPlayerTile> {
       await _player.stopPlayer();
       setState(() => _isPlaying = false);
     } else {
-      await _player.startPlayer(
-        fromURI: widget.filePath,
-        codec: Codec.aacADTS,
-        whenFinished: () => setState(() => _isPlaying = false),
-      );
+      await _startLoop();
       setState(() => _isPlaying = true);
     }
+  }
+
+  Future<void> _startLoop() async {
+    await _player.startPlayer(
+      fromURI: widget.filePath,
+      codec: Codec.aacADTS,
+      whenFinished: () async {
+        if (_isPlaying) {
+          // Reinicia inmediatamente al terminar
+          await _player.startPlayer(
+            fromURI: widget.filePath,
+            codec: Codec.aacADTS,
+            whenFinished: _startLoop,
+          );
+        }
+      },
+    );
   }
 
   @override
@@ -169,3 +182,4 @@ class _LoopPlayerTileState extends State<LoopPlayerTile> {
     );
   }
 }
+
